@@ -27,9 +27,13 @@ public:
   OVERLAPPED _overlapped;
   SOCKET _sock;
   char _buf[BUFSIZE + 1];
+
+private:
   int _recvbytes;
   int _sendbytes;
   WSABUF _wsabuf;
+
+public:
   SOCKETINFO(SOCKET sock) :
     _sock(sock),
     _recvbytes(0),
@@ -60,36 +64,28 @@ public:
   bool IsRemainSend() {
     return _recvbytes > _sendbytes;
   }
+  void RecvData() {
+    DWORD recvbytes = 0;
+    DWORD flags = 0;
+    int retval = WSARecv(
+      _sock,
+      &_wsabuf, 1, &recvbytes,
+      &flags, &_overlapped, NULL);
+    if (retval == SOCKET_ERROR) {
+      if (WSAGetLastError() != ERROR_IO_PENDING) {
+      }
+    }
+  }
+  void SendData() {
+    DWORD sendbytes;
+    int retval = WSASend(_sock, &_wsabuf, 1,
+      &sendbytes, 0, &_overlapped, NULL);
+    if (retval == SOCKET_ERROR) {
+      if (WSAGetLastError() != WSA_IO_PENDING) {
+      }
+    }
+  }
 };
-
-bool RecvData(SOCKETINFO* sock_info) {
-  DWORD recvbytes = 0;
-  DWORD flags = 0;
-  int retval = WSARecv(
-    sock_info->_sock,
-    &sock_info->_wsabuf, 1, &recvbytes,
-    &flags, &sock_info->_overlapped, NULL);
-  if (retval == SOCKET_ERROR) {
-    if (WSAGetLastError() != ERROR_IO_PENDING) {
-      PrintError("WSARecv()");
-    }
-    return false;
-  }
-  return true;
-}
-
-bool SendData(SOCKETINFO* sock_info) {
-  DWORD sendbytes;
-  int retval = WSASend(sock_info->_sock, &sock_info->_wsabuf, 1,
-    &sendbytes, 0, &sock_info->_overlapped, NULL);
-  if (retval == SOCKET_ERROR) {
-    if (WSAGetLastError() != WSA_IO_PENDING) {
-      PrintError("WSASend()");
-    }
-    return false;
-  }
-  return true;
-}
 
 DWORD WINAPI WorkerThread(LPVOID arg)
 {
@@ -115,8 +111,7 @@ DWORD WINAPI WorkerThread(LPVOID arg)
     if (retval == 0 || transferred_size == 0) {
       if (retval == 0) {
         DWORD temp1, temp2;
-        WSAGetOverlappedResult(sock_info->_sock, &sock_info->_overlapped,
-          &temp1, FALSE, &temp2);
+        WSAGetOverlappedResult(sock_info->_sock, &sock_info->_overlapped, &temp1, FALSE, &temp2);
         PrintError("WSAGetOverlappedResult()");
       }
       closesocket(sock_info->_sock);
@@ -137,15 +132,11 @@ DWORD WINAPI WorkerThread(LPVOID arg)
     if (sock_info->IsRemainSend()) {
       // 데이터 보내기
       sock_info->UpdateSendBuf();
-      if (SendData(sock_info) == false) {
-        continue;
-      }
+      sock_info->SendData();
     }
     else {
       sock_info->InitRecvBuf();
-      if (RecvData(sock_info) == false) {
-        continue;
-      }
+      sock_info->RecvData();
     }
   }
 
@@ -219,9 +210,7 @@ int main(int argc, const char* argv[]) {
     CreateIoCompletionPort((HANDLE)client_sock, hcp, client_sock, 0);
     SOCKETINFO* sock_info = new SOCKETINFO(client_sock);
     sock_info->InitRecvBuf();
-    if (RecvData(sock_info) == false) {
-      continue;
-    }
+    sock_info->RecvData();
   }
 
   WSACleanup();
